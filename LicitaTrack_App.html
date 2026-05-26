@@ -945,7 +945,314 @@ function renderAll(){
       <a href="${p.url}" target="_blank" class="pcrd-btn">🔗 Acessar</a>
       <div class="pcrd-tip">💡 ${p.tip}</div>
     </div>`).join('');
+<div class="tab" onclick="goTab('busca')">🔍 Busca PNCP</div>
+  <!-- ══════ BUSCA PNCP ══════ -->
+<div class="sec" id="sec-busca">
+  <div class="stitle">🔍 Busca PNCP ao Vivo</div>
+  <div class="ssub">Consulta em tempo real na API oficial do governo. Sem cadastro, sem login.</div>
 
+  <!-- FILTROS -->
+  <div class="card mb">
+    <div style="font-size:12px;font-weight:600;color:var(--cyan);margin-bottom:12px">🎯 Filtros</div>
+    <div class="frow">
+      <div class="fg" style="flex:2">
+        <label>Palavra-chave (objeto)</label>
+        <input id="b-termo" placeholder="Ex: fisioterapia, theraband, luva..." 
+               onkeydown="if(event.key==='Enter')buscaPNCP()">
+      </div>
+      <div class="fg">
+        <label>UF</label>
+        <select id="b-uf">
+          <option value="SP">SP — São Paulo</option>
+          <option value="">Todos os estados</option>
+          <option value="RJ">RJ</option><option value="MG">MG</option>
+          <option value="RS">RS</option><option value="PR">PR</option>
+          <option value="SC">SC</option><option value="BA">BA</option>
+          <option value="GO">GO</option><option value="DF">DF</option>
+          <option value="PE">PE</option><option value="CE">CE</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Modalidade</label>
+        <select id="b-modal">
+          <option value="8">Dispensa Eletrônica</option>
+          <option value="6">Pregão Eletrônico</option>
+          <option value="">Todas</option>
+        </select>
+      </div>
+    </div>
+    <div class="frow">
+      <div class="fg">
+        <label>Data inicial</label>
+        <input id="b-di" type="date">
+      </div>
+      <div class="fg">
+        <label>Data final</label>
+        <input id="b-df" type="date">
+      </div>
+      <div class="fg" style="justify-content:flex-end;padding-top:18px">
+        <button class="btn btn-c" onclick="buscaPNCP()">🔍 Buscar</button>
+      </div>
+    </div>
+    <!-- Pills de busca rápida -->
+    <div style="margin-top:8px">
+      <span style="font-size:10px;color:var(--txt3);margin-right:6px">RÁPIDO:</span>
+      <span class="pill" onclick="buscaRapida('fisioterapia')">fisioterapia</span>
+      <span class="pill" onclick="buscaRapida('material hospitalar')">material hospitalar</span>
+      <span class="pill" onclick="buscaRapida('theraband')">theraband</span>
+      <span class="pill" onclick="buscaRapida('órtese')">órtese</span>
+      <span class="pill" onclick="buscaRapida('luva procedimento')">luva procedimento</span>
+      <span class="pill" onclick="buscaRapida('cadeira de rodas')">cadeira de rodas</span>
+      <span class="pill" onclick="buscaRapida('andador')">andador</span>
+      <span class="pill" onclick="buscaRapida('EPI')">EPI</span>
+    </div>
+  </div>
+
+  <!-- STATUS / LOADING -->
+  <div id="b-status" style="display:none" class="card mb">
+    <div id="b-status-txt" style="font-size:13px;color:var(--txt2);text-align:center;padding:8px">
+      ⏳ Consultando API do PNCP...
+    </div>
+  </div>
+
+  <!-- RESULTADOS -->
+  <div id="b-resumo" style="display:none" class="card mb" 
+       style="background:rgba(0,212,255,.06);border-color:rgba(0,212,255,.3)"></div>
+  <div id="b-resultados"></div>
+
+  <!-- PAGINAÇÃO -->
+  <div id="b-pag" style="display:none;text-align:center;margin-top:8px">
+    <button class="btn btn-ghost" id="b-prev" onclick="mudaPag(-1)">◀ Anterior</button>
+    <span id="b-paginfo" class="mono muted" style="font-size:12px;margin:0 12px"></span>
+    <button class="btn btn-ghost" id="b-next" onclick="mudaPag(1)">Próxima ▶</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════
+// BUSCA PNCP — API PÚBLICA
+// ══════════════════════════════════════
+
+// Estado da busca
+let buscaState = { pagina: 1, totalPags: 1, params: {} };
+
+// Definir datas padrão (últimos 30 dias)
+(function initDatas() {
+  const hoje = new Date();
+  const di   = new Date(hoje); di.setDate(di.getDate() - 30);
+  document.getElementById('b-df').value = hoje.toISOString().split('T')[0];
+  document.getElementById('b-di').value = di.toISOString().split('T')[0];
+})();
+
+function buscaRapida(termo) {
+  document.getElementById('b-termo').value = termo;
+  buscaPNCP();
+}
+
+function buscaPNCP(pag) {
+  const termo  = document.getElementById('b-termo').value.trim();
+  const uf     = document.getElementById('b-uf').value;
+  const modal  = document.getElementById('b-modal').value;
+  const diRaw  = document.getElementById('b-di').value;
+  const dfRaw  = document.getElementById('b-df').value;
+
+  if (!diRaw || !dfRaw) { toast('⚠️ Informe as datas!'); return; }
+
+  // Formatar datas para YYYYMMDD
+  const di = diRaw.replace(/-/g, '');
+  const df = dfRaw.replace(/-/g, '');
+
+  const pagina = pag || 1;
+  buscaState.pagina = pagina;
+
+  // Montar URL
+  const base = 'https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao';
+  const params = new URLSearchParams({
+    dataInicial: di,
+    dataFinal:   df,
+    pagina:      pagina,
+    tamanhoPagina: 10,
+  });
+  if (uf)    params.append('uf', uf);
+  if (modal) params.append('codigoModalidadeContratacao', modal);
+
+  // Salvar params para paginação
+  buscaState.params = { di, df, uf, modal, termo };
+
+  // Mostrar loading
+  const statusEl = document.getElementById('b-status');
+  const statusTxt = document.getElementById('b-status-txt');
+  statusEl.style.display = 'block';
+  statusTxt.innerHTML = '⏳ Consultando API do PNCP...';
+  document.getElementById('b-resultados').innerHTML = '';
+  document.getElementById('b-resumo').style.display = 'none';
+  document.getElementById('b-pag').style.display = 'none';
+
+  fetch(`${base}?${params}`)
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      statusEl.style.display = 'none';
+      renderBusca(data, termo);
+    })
+    .catch(err => {
+      statusEl.style.display = 'block';
+      statusTxt.innerHTML = `
+        <div style="color:var(--red);font-weight:700">❌ Não foi possível conectar à API do PNCP</div>
+        <div style="font-size:11px;color:var(--txt2);margin-top:6px">
+          Possível causa: bloqueio de CORS no navegador ou a API está fora do ar.<br>
+          Tente acessar diretamente: 
+          <a href="https://pncp.gov.br/app/editais" target="_blank" 
+             style="color:var(--cyan)">pncp.gov.br/app/editais</a>
+        </div>`;
+    });
+}
+
+function renderBusca(data, termo) {
+  const itens = data.data || [];
+  const total = data.totalRegistros || 0;
+  const totalPags = data.totalPaginas || 1;
+  buscaState.totalPags = totalPags;
+
+  // Filtrar por termo localmente (a API busca por data/UF/modal, não por texto)
+  const filtrados = termo
+    ? itens.filter(i =>
+        (i.objetoCompra || '').toLowerCase().includes(termo.toLowerCase()) ||
+        (i.orgaoEntidade?.razaoSocial || '').toLowerCase().includes(termo.toLowerCase())
+      )
+    : itens;
+
+  // Resumo
+  const resumoEl = document.getElementById('b-resumo');
+  resumoEl.style.display = 'block';
+  resumoEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div>
+        <span style="font-size:13px;font-weight:700;color:var(--cyan)">${total.toLocaleString('pt-BR')}</span>
+        <span style="font-size:11px;color:var(--txt2)"> registros no período</span>
+        ${termo ? `<span style="font-size:11px;color:var(--yellow)"> · ${filtrados.length} com "<strong>${termo}</strong>"</span>` : ''}
+      </div>
+      <span style="font-size:10px;color:var(--txt3)">Página ${buscaState.pagina} de ${totalPags}</span>
+    </div>`;
+
+  if (!filtrados.length) {
+    document.getElementById('b-resultados').innerHTML = `
+      <div class="card" style="text-align:center;padding:24px">
+        <div style="font-size:24px;margin-bottom:8px">🔍</div>
+        <div style="font-weight:700;margin-bottom:4px">Nenhum resultado encontrado</div>
+        <div class="muted" style="font-size:12px">Tente outro termo ou ampliar o período de datas.</div>
+      </div>`;
+    return;
+  }
+
+  const MODAL_NOMES = {
+    '1':'Leilão Eletrônico','2':'Diálogo Competitivo','3':'Concurso','4':'Concorrência Eletrônica',
+    '5':'Concorrência Presencial','6':'Pregão Eletrônico','7':'Pregão Presencial',
+    '8':'Dispensa Eletrônica','9':'Inexigibilidade','10':'Manifestação de Interesse',
+    '11':'Pré-qualificação','12':'Credenciamento','13':'Leilão Presencial'
+  };
+
+  const html = filtrados.map(item => {
+    const modal     = MODAL_NOMES[String(item.modalidadeId)] || 'Modalidade '+item.modalidadeId;
+    const orgao     = item.orgaoEntidade?.razaoSocial || '—';
+    const uf        = item.unidadeOrgao?.ufSigla || item.uf || '—';
+    const municipio = item.unidadeOrgao?.municipioNome || '';
+    const objeto    = item.objetoCompra || 'Objeto não informado';
+    const valor     = item.valorTotalEstimado
+      ? 'R$ ' + Number(item.valorTotalEstimado).toLocaleString('pt-BR',{minimumFractionDigits:2})
+      : '—';
+
+    // Datas
+    const dtPublic  = item.dataPublicacaoPncp
+      ? new Date(item.dataPublicacaoPncp).toLocaleDateString('pt-BR') : '—';
+    const dtEnc     = item.dataEncerramentoProposta
+      ? new Date(item.dataEncerramentoProposta).toLocaleDateString('pt-BR') : '—';
+
+    // Status (aberto / encerrado)
+    const agora = new Date();
+    const encDate = item.dataEncerramentoProposta ? new Date(item.dataEncerramentoProposta) : null;
+    const aberto = encDate ? encDate > agora : null;
+    const statusTag = aberto === true
+      ? `<span class="tag tg-g">✅ Aberto</span>`
+      : aberto === false
+      ? `<span class="tag tg-r">🔒 Encerrado</span>`
+      : `<span class="tag tg">📋 Sem prazo</span>`;
+
+    // Modalidade tag cor
+    const isDispensa = String(item.modalidadeId) === '8';
+    const isPregao   = String(item.modalidadeId) === '6';
+    const modalCls   = isDispensa ? 'tg-g' : isPregao ? 'tg-p' : 'tg';
+
+    // Link PNCP
+    const cnpj  = item.orgaoEntidade?.cnpj || '';
+    const ano   = item.anoCompra || '';
+    const seq   = item.sequencialCompra || '';
+    const link  = cnpj && ano && seq
+      ? `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`
+      : 'https://pncp.gov.br/app/editais';
+
+    return `
+      <div class="card mb" style="border-left:3px solid ${aberto ? 'var(--green)' : 'var(--border)'}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px">${objeto}</div>
+            <div class="muted" style="font-size:11px">🏛️ ${orgao} &nbsp;·&nbsp; 📍 ${municipio} ${uf}</div>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0">
+            ${statusTag}
+            <span class="tag ${modalCls}">${modal}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+          <div><span class="muted" style="font-size:10px">VALOR EST.</span><br>
+               <span class="mono green" style="font-size:13px;font-weight:700">${valor}</span></div>
+          <div><span class="muted" style="font-size:10px">PUBLICADO</span><br>
+               <span style="font-size:12px">${dtPublic}</span></div>
+          <div><span class="muted" style="font-size:10px">ENCERRAMENTO</span><br>
+               <span style="font-size:12px;color:${aberto ? 'var(--yellow)' : 'var(--txt2)'}">${dtEnc}</span></div>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <a href="${link}" target="_blank" class="btn btn-c btn-sm">🔗 Ver no PNCP</a>
+          ${aberto ? `<button class="btn btn-g btn-sm" onclick="adicionarAoFunil('${objeto.replace(/'/g,"\\'")}','${orgao.replace(/'/g,"\\'")}','${valor}')">➕ Adicionar ao Funil</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('b-resultados').innerHTML = html;
+
+  // Paginação
+  if (totalPags > 1) {
+    const pagEl = document.getElementById('b-pag');
+    pagEl.style.display = 'block';
+    document.getElementById('b-paginfo').textContent = `${buscaState.pagina} / ${totalPags}`;
+    document.getElementById('b-prev').disabled = buscaState.pagina <= 1;
+    document.getElementById('b-next').disabled = buscaState.pagina >= totalPags;
+  }
+}
+
+function mudaPag(dir) {
+  const nova = buscaState.pagina + dir;
+  if (nova < 1 || nova > buscaState.totalPags) return;
+  buscaPNCP(nova);
+  // Scroll para topo dos resultados
+  document.getElementById('b-resumo').scrollIntoView({behavior:'smooth'});
+}
+
+function adicionarAoFunil(prod, orgao, valorStr) {
+  // Extrai número do valor formatado
+  const valor = parseFloat(valorStr.replace('R$ ','').replace(/\./g,'').replace(',','.')) || 0;
+  processos.unshift({
+    id: Date.now(), prod, orgao,
+    preco: 0, ref: valor, fase: 0
+  });
+  S.set('processos', processos);
+  renderKanban();
+  updateHeader();
+  toast('✅ Adicionado ao Funil!');
+}
+</script>
   // Pills
   document.getElementById('pills').innerHTML=PILLS.map(p=>
     `<span class="pill" onclick="copyPill('${p}')">${p}</span>`).join('');
